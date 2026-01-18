@@ -1,0 +1,217 @@
+{
+  "name": "AI-Powered Food Order Processing System (SAFE TEMPLATE)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fb-messenger-webhook",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook_fb",
+      "name": "Webhook - FB Messenger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.query['hub.mode'] }}",
+              "rightValue": "subscribe",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.query['hub.verify_token'] }}",
+              "rightValue": "={{ $env.FB_VERIFY_TOKEN }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "verify_webhook",
+      "name": "Validate Webhook Subscription",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $('Webhook - FB Messenger').item.json.query['hub.challenge'] }}"
+      },
+      "id": "respond_challenge",
+      "name": "Respond Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 150]
+    },
+
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Inventory",
+        "lookupColumn": "Item Name",
+        "lookupValue": "*"
+      },
+      "id": "check_inventory",
+      "name": "Check Current Inventory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets OAuth2"
+        }
+      },
+      "position": [650, 450]
+    },
+
+    {
+      "parameters": {
+        "operation": "lookup",
+        "documentId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "sheetName": "Business_Config",
+        "lookupColumn": "Config Key",
+        "lookupValue": "*"
+      },
+      "id": "check_business_config",
+      "name": "Check Business Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "name": "Google Sheets OAuth2"
+        }
+      },
+      "position": [650, 600]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { canAcceptOrders: true } }];"
+      },
+      "id": "process_context",
+      "name": "Process Business Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 520]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.canAcceptOrders }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "business_open",
+      "name": "Business Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1150, 520]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.FB_PAGE_ID }}/messages",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "access_token",
+              "value": "={{ $env.FB_PAGE_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "jsonBody": {
+          "recipient": {
+            "id": "={{ $('Webhook - FB Messenger').item.json.entry[0].messaging[0].sender.id }}"
+          },
+          "message": {
+            "text": "Sorry! We are currently closed. Please come back during business hours."
+          }
+        }
+      },
+      "id": "send_closed_msg",
+      "name": "Send Business Closed Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1400, 350]
+    },
+
+    {
+      "parameters": {
+        "model": "gpt-4o-mini"
+      },
+      "id": "openai_model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenAI API"
+        }
+      },
+      "position": [1350, 700]
+    }
+  ],
+
+  "connections": {
+    "Webhook - FB Messenger": {
+      "main": [[{ "node": "Validate Webhook Subscription", "type": "main" }]]
+    },
+    "Validate Webhook Subscription": {
+      "main": [
+        [{ "node": "Respond Challenge", "type": "main" }],
+        [
+          { "node": "Check Current Inventory", "type": "main" },
+          { "node": "Check Business Config", "type": "main" }
+        ]
+      ]
+    },
+    "Check Current Inventory": {
+      "main": [[{ "node": "Process Business Context", "type": "main" }]]
+    },
+    "Check Business Config": {
+      "main": [[{ "node": "Process Business Context", "type": "main" }]]
+    },
+    "Process Business Context": {
+      "main": [[{ "node": "Business Open?", "type": "main" }]]
+    },
+    "Business Open?": {
+      "main": [
+        [{ "node": "Send Business Closed Message", "type": "main" }],
+        [{ "node": "OpenAI Chat Model", "type": "main" }]
+      ]
+    }
+  },
+
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "SAFE-TEMPLATE-1.0",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": ["n8n", "automation", "ai", "messenger"]
+}
