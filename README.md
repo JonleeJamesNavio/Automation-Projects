@@ -93,6 +93,7 @@ Before production use:
 ## 👨‍💻 Author
 
 Maintained by **Jonlee James Navio**
+
 Automation Engineer | AI Workflow Builder
 
 📫 GitHub & LinkedIn available on profile
