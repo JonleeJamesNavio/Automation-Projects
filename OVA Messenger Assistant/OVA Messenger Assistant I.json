@@ -1,0 +1,159 @@
+{
+  "name": "OVA Autoreply",
+  "flow": [
+    {
+      "id": 24,
+      "module": "facebook-messenger:watchMessages",
+      "version": 2,
+      "parameters": {
+        "__IMTHOOK__": "[Facebook Messenger Webhook ID]"
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 450
+        },
+        "restore": {
+          "parameters": {
+            "__IMTHOOK__": {
+              "data": {
+                "editable": "false"
+              },
+              "label": "[Facebook Messenger Webhook]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 25,
+      "module": "datastore:SearchRecord",
+      "version": 1,
+      "parameters": {
+        "limit": null,
+        "datastore": "[Datastore ID]",
+        "continueWhenNoRes": false
+      },
+      "mapper": {
+        "sort": [],
+        "filter": [
+          [
+            {
+              "a": "psid",
+              "b": "{{24.sender.id}}",
+              "o": "text:equal"
+            }
+          ]
+        ],
+        "mappAbleLimit": ""
+      }
+    },
+    {
+      "id": 26,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "routes": [
+        {
+          "flow": [
+            {
+              "module": "placeholder:Placeholder",
+              "filter": {
+                "name": "Admin is Active",
+                "conditions": [
+                  [
+                    {
+                      "a": "{{length(25.array)}}",
+                      "b": "0",
+                      "o": "number:greater"
+                    },
+                    {
+                      "a": "{{25.data.admin_active}}",
+                      "b": "true",
+                      "o": "boolean:equal"
+                    }
+                  ]
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 16,
+              "module": "openai-gpt-3:CreateCompletion",
+              "version": 1,
+              "parameters": {
+                "__IMTCONN__": "[OpenAI Connection ID]"
+              },
+              "mapper": {
+                "model": "gpt-4o-mini",
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "[System Prompt Content]"
+                  },
+                  {
+                    "role": "user",
+                    "content": "{{24.message.text}}"
+                  }
+                ],
+                "max_tokens": "2048",
+                "temperature": "1"
+              }
+            },
+            {
+              "id": 18,
+              "module": "builtin:BasicRouter",
+              "version": 1,
+              "routes": [
+                {
+                  "flow": [
+                    {
+                      "id": 17,
+                      "module": "facebook-messenger:sendMessage",
+                      "version": 2,
+                      "parameters": {
+                        "__IMTCONN__": "[Facebook Messenger Connection ID]"
+                      },
+                      "mapper": {
+                        "recipient": {
+                          "id": "{{24.sender.id}}"
+                        },
+                        "message": {
+                          "text": "{{16.choices[].message.content}}"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "flow": [
+                    {
+                      "id": 19,
+                      "module": "telegram:SendReplyMessage",
+                      "version": 1,
+                      "parameters": {
+                        "__IMTCONN__": "[Telegram Bot Connection ID]"
+                      },
+                      "mapper": {
+                        "chatId": "[Telegram Admin Chat ID]",
+                        "text": "⚠️ ALERT FROM OVA BOT\n\nMessage: {{24.message.text}}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "zone": "[Make Region]"
+  }
+}
