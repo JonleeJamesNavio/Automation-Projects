@@ -1,0 +1,256 @@
+{
+  "name": "AI Calendar Assistant with Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "position": [600, 460],
+      "typeVersion": 1.2,
+      "webhookId": "calendar-bot-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "chatId",
+              "name": "chatId",
+              "type": "string",
+              "value": "={{ $json.message.chat.id }}"
+            },
+            {
+              "id": "userText",
+              "name": "userText",
+              "type": "string",
+              "value": "={{ $json.message.text }}"
+            },
+            {
+              "id": "username",
+              "name": "username",
+              "type": "string",
+              "value": "={{ $json.message.from.first_name || $json.message.from.username }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-data",
+      "name": "Extract Message Data",
+      "type": "n8n-nodes-base.set",
+      "position": [820, 460],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get current date and time for context\nconst now = new Date();\nconst currentDateTime = now.toISOString();\nconst formattedDate = now.toLocaleDateString('en-US', {\n  weekday: 'long',\n  year: 'numeric',\n  month: 'long',\n  day: 'numeric'\n});\n\nconst userText = $input.first().json.userText;\nconst chatId = $input.first().json.chatId;\nconst username = $input.first().json.username;\n\nreturn [{\n  json: {\n    chatId,\n    userText,\n    username,\n    currentDateTime,\n    formattedDate\n  }\n}];"
+      },
+      "id": "prepare-context",
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.code",
+      "position": [1040, 460],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are CalBot, a friendly and helpful calendar assistant.\n\n**CURRENT DATE & TIME**: {{ $json.currentDateTime }}\n**TODAY IS**: {{ $json.formattedDate }}\n\n**YOUR CAPABILITIES**:\nYou have access to Google Calendar tools to:\n- **Create events** - Add new calendar events\n- **Get events** - Retrieve existing calendar events\n- **Update events** - Modify existing events\n- **Delete events** - Remove events from the calendar\n\n**IMPORTANT INSTRUCTIONS**:\n\n1. **DATE & TIME PARSING**:\n   - Current date/time: {{ $json.currentDateTime }}\n   - \"tomorrow\" = add 1 day from today\n   - \"next Monday\" = calculate the next Monday from today\n   - \"in 3 days\" = add 3 days from today\n   - Always use ISO 8601 format: YYYY-MM-DDTHH:mm:ss+08:00\n   - Default time if not specified: 09:00:00\n   - Default duration: 1 hour\n\n2. **CREATING EVENTS**:\n   - Extract event details from natural language\n   - Examples:\n     * \"Schedule meeting with client at 3pm tomorrow\" →\n       summary: \"Meeting with client\"\n       start: [tomorrow]T15:00:00+08:00\n       end: [tomorrow]T16:00:00+08:00\n     * \"Add dentist appointment next Tuesday 2pm\" →\n       summary: \"Dentist appointment\"\n       start: [next Tuesday]T14:00:00+08:00\n       end: [next Tuesday]T15:00:00+08:00\n   - Use the Create Event tool with: summary, start, end, description (optional)\n\n3. **GETTING EVENTS**:\n   - \"What's on my calendar today?\" → Use Get Events with today's date range\n   - \"Show me this week's events\" → Use Get Events with this week's date range\n   - Always format the results in a friendly, readable way\n\n4. **UPDATING EVENTS**:\n   - First use Get Events to find the event\n   - Then use Update Event with the eventId and new details\n\n5. **DELETING EVENTS**:\n   - First use Get Events to find the event\n   - Confirm with user before deleting\n   - Then use Delete Event with the eventId\n\n6. **BE CONVERSATIONAL**:\n   - Address user as {{ $json.username }} occasionally\n   - Use friendly, natural language\n   - If you need clarification, ask specific questions\n   - Confirm important actions before executing\n\n**USER'S REQUEST**: {{ $json.userText }}\n\nRespond naturally and use your tools when needed to help the user manage their calendar.",
+        "options": {
+          "systemMessage": "You are CalBot, a calendar assistant. Parse dates relative to the current date/time. Always confirm before making changes to the calendar."
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Calendar Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [1260, 460],
+      "typeVersion": 1.9
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "maxTokens": 1000,
+          "temperature": 0.7
+        }
+      },
+      "id": "openai-model",
+      "name": "OpenAI GPT-4o-mini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [1040, 640],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Extract Message Data').item.json.chatId }}",
+        "contextWindowLength": 10
+      },
+      "id": "memory",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [1180, 640],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendarId": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "start": "={{ $fromAI('start', 'Start date and time in ISO 8601 format (YYYY-MM-DDTHH:mm:ss+08:00)', 'string') }}",
+        "end": "={{ $fromAI('end', 'End date and time in ISO 8601 format (YYYY-MM-DDTHH:mm:ss+08:00)', 'string') }}",
+        "additionalFields": {
+          "summary": "={{ $fromAI('summary', 'Event title or name', 'string') }}",
+          "description": "={{ $fromAI('description', 'Event description or notes (optional)', 'string', { optional: true }) }}"
+        }
+      },
+      "id": "gcal-create-tool",
+      "name": "Google Calendar - Create Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "position": [1320, 640],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendarId": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "returnAll": false,
+        "limit": 20,
+        "options": {
+          "timeMin": "={{ $fromAI('timeMin', 'Start of time range in ISO format (optional)', 'string', { optional: true }) }}",
+          "timeMax": "={{ $fromAI('timeMax', 'End of time range in ISO format (optional)', 'string', { optional: true }) }}"
+        }
+      },
+      "id": "gcal-get-tool",
+      "name": "Google Calendar - Get Events",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "position": [1460, 640],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendarId": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "eventId": "={{ $fromAI('eventId', 'The ID of the event to update', 'string') }}",
+        "updateFields": {
+          "start": "={{ $fromAI('start', 'New start date and time in ISO format (optional)', 'string', { optional: true }) }}",
+          "end": "={{ $fromAI('end', 'New end date and time in ISO format (optional)', 'string', { optional: true }) }}",
+          "summary": "={{ $fromAI('summary', 'New event title (optional)', 'string', { optional: true }) }}",
+          "description": "={{ $fromAI('description', 'New description (optional)', 'string', { optional: true }) }}"
+        }
+      },
+      "id": "gcal-update-tool",
+      "name": "Google Calendar - Update Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "position": [1600, 640],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendarId": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "eventId": "={{ $fromAI('eventId', 'The ID of the event to delete', 'string') }}"
+      },
+      "id": "gcal-delete-tool",
+      "name": "Google Calendar - Delete Event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "position": [1740, 640],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Message Data').item.json.chatId }}",
+        "text": "={{ $json.output || $json.text || 'Sorry, I had trouble processing that request.' }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-telegram",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "position": [1480, 460],
+      "typeVersion": 1.2
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Extract Message Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Message Data": {
+      "main": [[{ "node": "Prepare Context", "type": "main", "index": 0 }]]
+    },
+    "Prepare Context": {
+      "main": [[{ "node": "AI Calendar Agent", "type": "main", "index": 0 }]]
+    },
+    "AI Calendar Agent": {
+      "main": [[{ "node": "Send to Telegram", "type": "main", "index": 0 }]]
+    },
+    "OpenAI GPT-4o-mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Calendar Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [{ "node": "AI Calendar Agent", "type": "ai_memory", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Create Event": {
+      "ai_tool": [
+        [{ "node": "AI Calendar Agent", "type": "ai_tool", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Get Events": {
+      "ai_tool": [
+        [{ "node": "AI Calendar Agent", "type": "ai_tool", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Update Event": {
+      "ai_tool": [
+        [{ "node": "AI Calendar Agent", "type": "ai_tool", "index": 0 }]
+      ]
+    },
+    "Google Calendar - Delete Event": {
+      "ai_tool": [
+        [{ "node": "AI Calendar Agent", "type": "ai_tool", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
